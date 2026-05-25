@@ -63,6 +63,7 @@ if [ -n "$KVM_ERR" ]; then
 fi
 
 # Update username and password
+usermod -u 0 "$USERNAME"
 printf '%s:%s\n' "$USERNAME" "$PASSWORD" | chpasswd
 
 # Modify setting for LXC containers

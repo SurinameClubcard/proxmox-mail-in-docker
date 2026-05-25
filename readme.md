@@ -69,17 +69,26 @@ docker run -it --rm --name proxmox --hostname pve -e "USERNAME=root" -e "PASSWOR
 
 ### How can I setup networking for the virtual machines?
 
-  - Go to `System` -> `Network` --> `Create` in the Proxmox web-interface. 
+  - Go to `System` -> `Network` --> `Create` --> `Linux Bridge` in the Proxmox web-interface. 
   
-  - Create a new `Linux Bridge` called `vmbr0` and set its `IPv4/CIDR` field to the same subnet as your Docker container's bridge network (`172.0.11.0/24` for example).
+  - Create a new `Linux Bridge` and set its `IPv4/CIDR` field to exactly the same subnet as your Docker container (`172.0.11.0/24` for example).
 
-  - Set the `Gateway` to its `.1` counterpart (`172.0.11.1`), and create the bridge.
+  - Set the `Gateway` to its `.1` address (`172.0.11.1`), and create the bridge.
 
-  - Create a new virtual machine and assign it a static IP in the range of that subnet, starting from a value of `.100`.
-
-    For example `192.168.2.100`, `192.168.2.101`, etc. as DHCP is not supported.
+  - Attach `vmbr0` to your virtual machine, start the machine and view its screen.
+ 
+  - Configure the OS for a static IP instead of DHCP, pick one starting from a value of `.100`, for example `172.0.11.100`.
 
   - The virtual machine should now be connected to the internet!
+
+> [!TIP]
+> If you do not know the subnet of your Docker container, execute:
+>
+>    ```shell
+>    docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' proxmox
+>    ```
+>
+> to view its IP address.
 
 ### How do I verify if my system supports the KVM virtualization used by Proxmox?
 

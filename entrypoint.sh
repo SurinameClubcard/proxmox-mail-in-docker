@@ -66,4 +66,8 @@ fi
 # Update username and password
 printf '%s:%s\n' "$USERNAME" "$PASSWORD" | chpasswd
 
-exec /usr/sbin/init
+for i in $(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | sed 's/@.*//'); do 
+  echo -e "auto $i\niface $i inet manual\n" # >> /etc/network/interfaces
+done
+
+exec /usr/sbin/init 3

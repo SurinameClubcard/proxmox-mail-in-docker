@@ -112,13 +112,13 @@ if (( rc != 0 )); then
 fi
 
 # Create bridge 
-echo "auto docker0" >> "$file"
-echo "iface docker0 inet static" >> "$file"
-echo "        address ${IP%.*}.0/24" >> "$file"
-echo "        gateway ${IP%.*}.1" >> "$file"
-echo "        bridge-ports $NET_DEV" >> "$file"
-echo "        bridge-stp off" >> "$file"
-echo "        bridge-fd 0" >> "$file"
+# echo "auto docker0" >> "$file"
+# echo "iface docker0 inet static" >> "$file"
+# echo "        address ${IP%.*}.0/24" >> "$file"
+# echo "        gateway ${IP%.*}.1" >> "$file"
+# echo "        bridge-ports $NET_DEV" >> "$file"
+# echo "        bridge-stp off" >> "$file"
+# echo "        bridge-fd 0" >> "$file"
 
 # Apply configuration
 cp "$file" /etc/network/interfaces.new

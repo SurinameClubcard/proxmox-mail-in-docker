@@ -102,14 +102,14 @@ else
   
   # Determine container name
   target=$(hostname -s)
-  ids=($(docker ps -aq))
-
   target=$(
-    docker inspect -f '{{.Name}} {{.Config.Hostname}}' "${ids[@]}" |
+    docker ps -aq |
+    xargs docker inspect -f '{{.Name}} {{.Config.Hostname}}' |
     awk -v t="$target" '$2 == t {print $1}' |
     tail -c +2
   )
 
+  # Check if container name is valid
   if ! docker inspect "$target" &>/dev/null; then
     error "Failed to find a container with name: '$target'!" && exit 31
   fi

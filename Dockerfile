@@ -87,8 +87,10 @@ apt-get install -y --no-install-recommends \
   nfs-common \
   cifs-utils \
   open-iscsi \
+  traceroute \
   bridge-utils \
   iputils-ping \
+  netcat-openbsd \
   isc-dhcp-client \
   proxmox-mail-forward \
   proxmox-datacenter-manager \
@@ -96,11 +98,6 @@ apt-get install -y --no-install-recommends \
 
 # Generate locales
 locale-gen en_US.UTF-8
-
-# Redirect to busybox
-ln -s /usr/bin/busybox /usr/bin/nc
-ln -s /usr/bin/busybox /usr/bin/nslookup
-ln -s /usr/bin/busybox /usr/bin/traceroute
 
 # Remove enterprise repo added by Proxmox packages — keep only no-subscription
 rm -f /etc/apt/sources.list.d/pdm-enterprise.list \

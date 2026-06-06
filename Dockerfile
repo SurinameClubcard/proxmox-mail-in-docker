@@ -116,6 +116,8 @@ apt-get clean
 
 # Mask unneeded services
 ln -sf /dev/null /etc/systemd/system/systemd-udevd.service
+ln -sf /dev/null /etc/systemd/system/systemd-udevd-kernel.socket
+ln -sf /dev/null /etc/systemd/system/systemd-udevd-control.socket
 ln -sf /dev/null /etc/systemd/system/systemd-modules-load.service
 ln -sf /dev/null /etc/systemd/system/systemd-networkd-wait-online.service
     

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM debian:trixie
+FROM debian:trixie-slim
 
 ARG TARGETARCH
 ARG VERSION_ARG="0.0"
@@ -70,30 +70,21 @@ apt-get install -y --no-install-recommends \
   htop \
   less \
   cpio \
-  iotop \
-  gnupg \
   procps \
-  chrony \
-  postfix \
-  ethtool \
-  dnsmasq \
-  dnsutils \
-  sysstat \
   locales \
-  busybox \
   iptables \
   iproute2 \
   ifupdown2 \
   net-tools \
   nfs-common \
   cifs-utils \
-  open-iscsi \
   traceroute \
   systemd-sysv \
-  bridge-utils \
   iputils-ping \
   netcat-openbsd \
-  isc-dhcp-client \
+  isc-dhcp-client
+
+apt-get install -y \
   proxmox-mail-forward \
   proxmox-datacenter-manager \
   proxmox-offline-mirror-helper
@@ -114,7 +105,7 @@ apt-mark hold proxmox-datacenter-manager proxmox-mail-forward proxmox-offline-mi
 apt-get autoremove -y
 apt-get clean
 
-# Mask unneeded services
+# Mask unneeded services 
 ln -sf /dev/null /etc/systemd/system/systemd-udevd.service
 ln -sf /dev/null /etc/systemd/system/systemd-udevd-kernel.socket
 ln -sf /dev/null /etc/systemd/system/systemd-udevd-control.socket
@@ -122,6 +113,7 @@ ln -sf /dev/null /etc/systemd/system/systemd-modules-load.service
 ln -sf /dev/null /etc/systemd/system/systemd-networkd-wait-online.service
 
 # Config journald
+mkdir -p /etc/systemd/journald.conf.d
 echo "[Journal]\nRuntimeMaxUse=500M" > /etc/systemd/journald.conf.d/container.conf
 
 # Disable keyboard request target (for Docker TTY)
@@ -183,9 +175,8 @@ echo "$VERSION_ARG" > /etc/version
 # Remove stub
 rm /usr/local/sbin/systemctl
 
-# Mask unneeded services
+# Mask unneeded mounts
 systemctl mask \
-    systemd-udevd.service \
     sys-kernel-debug.mount \
     sys-kernel-config.mount \
     sys-kernel-tracing.mount \

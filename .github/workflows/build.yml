@@ -25,7 +25,7 @@ jobs:
         name: Get remote package data
         run: |
           set -e -o pipefail
-          latest_tag=$(curl -fsSL https://metadata.cdn.proxmox.com/download/changelogs/pve/dists/trixie/pve-no-subscription/p/pve-manager/ | grep -oP 'pve-manager_\K[0-9]+\.[0-9]+\.[0-9]+(?=\.changelog)' | sort -V | tail -1)
+          latest_tag=$(curl -fsSL https://metadata.cdn.proxmox.com/download/changelogs/pdm/dists/trixie/pdm-no-subscription/p/proxmox-datacenter-manager// | grep -oP 'proxmox-datacenter-manager/_\K[0-9]+\.[0-9]+\.[0-9]+(?=\.changelog)' | sort -V | tail -1)
           echo "Found tag: \"${latest_tag}\""
           latest_version="${latest_tag%-*}"
           major="${latest_version%%.*}"
@@ -71,7 +71,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=${{ vars.NAME }}
         env:
-          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
       - 
         name: Set up Docker Buildx
         if: env.exists == 'false'
@@ -99,7 +99,7 @@ jobs:
           context: .
           push: true
           provenance: false
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}

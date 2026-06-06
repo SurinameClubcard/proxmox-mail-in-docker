@@ -68,4 +68,14 @@ if [ -n "$KVM_ERR" ]; then
   #[[ "${DEBUG:-}" != [Yy1]* ]] && exit 19
 fi
 
+# Fix permissions
+
+DIR="/etc/promox-datacenter-manager"
+uid=$(stat -c '%u' "$DIR")
+
+if [ "$uid" -eq 0 ]; then
+  pdm_user=$(systemctl show -p User --value proxmox-datacenter-manager)
+  [ -n "$pdm_user" ] && chown -R "$pdm_user:$pdm_user" "$DIR"
+fi
+
 exec "$@"

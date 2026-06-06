@@ -88,6 +88,7 @@ apt-get install -y --no-install-recommends \
   cifs-utils \
   open-iscsi \
   traceroute \
+  systemd-sysv \
   bridge-utils \
   iputils-ping \
   netcat-openbsd \

@@ -82,7 +82,7 @@ volumes:
   - ./config:/var/lib/proxmox-datacenter-manager
   ```
 
-  Replace the example paths `./pdm` and `./config` with the desired storage folder or named volume.
+  Replace the example paths `./pdm` and `./config` with the desired storage folders or named volumes.
 
 ### How do I verify if my system supports the KVM virtualization used by Proxmox?
 

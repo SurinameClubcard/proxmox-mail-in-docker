@@ -42,24 +42,6 @@ Components: ${COMPONENT}
 Signed-By: ${KEY_PATH}
 SOURCES
 
-# Prevent services from starting during install
-printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
-chmod +x /usr/sbin/policy-rc.d
-
-# Stub commands unavailable / problematic in a Docker build
-dpkg-divert --local --rename --add /usr/bin/unshare
-printf '#!/bin/sh\nwhile [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done\n[ "$1" = "--" ] && \
-shift\n[ $# -gt 0 ] && exec "$"\nexit 0\n' > /usr/bin/unshare
-chmod +x /usr/bin/unshare
-dpkg-divert --local --rename --add /usr/sbin/update-initramfs
-printf '#!/bin/sh\nexit 0\n' > /usr/sbin/update-initramfs
-chmod +x /usr/sbin/update-initramfs
-dpkg-divert --local --rename --add /usr/sbin/ifreload
-printf '#!/bin/sh\n[ "$1" = "-V" ] && printf "%%s\n" "ifupdown2:3.3.0-1+pmx12"\nexit 0\n' > /usr/sbin/ifreload
-chmod +x /usr/sbin/ifreload
-printf '#!/bin/sh\nexit 0\n' > /usr/local/sbin/systemctl
-chmod +x /usr/local/sbin/systemctl
-
 # Update system and install Proxmox Datacenter Manager
 apt-get update
 apt-get full-upgrade -y
@@ -112,6 +94,13 @@ ln -sf /dev/null /etc/systemd/system/systemd-udevd-control.socket
 ln -sf /dev/null /etc/systemd/system/systemd-modules-load.service
 ln -sf /dev/null /etc/systemd/system/systemd-networkd-wait-online.service
 
+# Mask unneeded mounts
+systemctl mask \
+    sys-kernel-debug.mount \
+    sys-kernel-config.mount \
+    sys-kernel-tracing.mount \
+    proc-sys-fs-binfmt_misc.automount
+
 # Config journald
 mkdir -p /etc/systemd/journald.conf.d
 echo "[Journal]\nRuntimeMaxUse=500M" > /etc/systemd/journald.conf.d/container.conf
@@ -124,29 +113,11 @@ Description=Keyboard Request Target
 [Target]
 KBR
 
-# Fix ifupdown2-pre.service for container (no udev)
-mkdir -p /etc/systemd/system/ifupdown2-pre.service.d
-cat >/etc/systemd/system/ifupdown2-pre.service.d/override.conf << IUD
-[Service]
-ExecStart=
-ExecStart=/bin/true
-IUD
-
 # Set username and password
 echo "root:root" | chpasswd
 
 # Store version number
 echo "$VERSION_ARG" > /etc/version
-
-# Remove stub
-rm /usr/local/sbin/systemctl
-
-# Mask unneeded mounts
-systemctl mask \
-    sys-kernel-debug.mount \
-    sys-kernel-config.mount \
-    sys-kernel-tracing.mount \
-    proc-sys-fs-binfmt_misc.automount
 
 # Cleanup files
 rm -rf /tmp/* /var/tmp/* /var/lib/apt/lists/*

@@ -130,8 +130,8 @@ else
 
   SUPERCRONIC=supercronic-linux-arm64
   SUPERCRONIC_URL=https://github.com/aptible/supercronic/releases/download/v0.2.46/supercronic-linux-arm64
-  
-fi    
+
+fi
 
 curl -fsSLO "$SUPERCRONIC_URL"
 chmod +x "$SUPERCRONIC"

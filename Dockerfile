@@ -89,6 +89,9 @@ DEB
     proxmox-datacenter-manager \
     proxmox-datacenter-manager-ui \
 
+  # Prevent system updates
+  apt-mark hold proxmox-datacenter-manager proxmox-datacenter-manager-ui
+
 else
 
  apt-get install -y --no-install-recommends \
@@ -113,6 +116,9 @@ else
     dpkg-dev \
     apt-transport-https
 
+  # Prevent system updates
+  apt-mark hold proxmox-datacenter-manager
+
 fi
 
 # Remove enterprise repo added by Proxmox packages — keep only no-subscription
@@ -120,9 +126,6 @@ rm -f /etc/apt/sources.list.d/pdm-enterprise.list \
       /etc/apt/sources.list.d/pdm-enterprise.sources \
       /etc/apt/sources.list.d/ceph.list \
       /etc/apt/sources.list.d/ceph.sources
-
-# Prevent system updates
-apt-mark hold proxmox-datacenter-manager proxmox-datacenter-manager-ui
 
 # Cleanup
 apt-get autoremove -y

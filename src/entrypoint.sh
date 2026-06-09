@@ -91,6 +91,11 @@ dir="/var/lib/proxmox-datacenter-manager"
 mkdir -p "$dir"
 chown "$user:$user" "$dir" || :
 
+dir="/var/lib/proxmox-datacenter-manager/rrdb"
+mkdir -p "$dir"
+chown "$user:$user" "$dir" || :
+chmod 755 "$dir" || :
+
 dir="/var/log/proxmox-datacenter-manager"
 mkdir -p "$dir"
 chown "root:$user" "$dir" || :

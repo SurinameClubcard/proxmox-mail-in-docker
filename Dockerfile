@@ -19,6 +19,7 @@ set -Eeuo pipefail
 # Install prerequisites
 apt-get update
 apt-get install -y --no-install-recommends \
+  bc \
   jq \
   curl \
   tini \
@@ -27,6 +28,9 @@ apt-get install -y --no-install-recommends \
   htop \
   less \
   cpio \
+  dpkg \
+  iotop \
+  gnupg \
   procps \
   locales \
   rsyslog \
@@ -34,10 +38,16 @@ apt-get install -y --no-install-recommends \
   iptables \
   iproute2 \
   ifupdown2 \
+  jfsutils \
+  xfsprogs \
+  e2fsprogs \
   net-tools \
+  nfs-utils \
   nfs-common \
   cifs-utils \
   traceroute \
+  open-iscsi \
+  btrfs-progs \
   iputils-ping \
   netcat-openbsd \
   ca-certificates \

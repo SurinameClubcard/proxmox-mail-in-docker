@@ -30,13 +30,17 @@ apt-get install -y --no-install-recommends \
   gnupg \
   procps \
   locales \
+  postfix \
   rsyslog \
   iproute2 \
   net-tools \
   dnsutils \
+  postgresql \
   iputils-ping \
+  clamav-daemon \
   netcat-openbsd \
-  ca-certificates
+  ca-certificates \
+  clamav-freshclam
 
 # Prevent services from starting during install
 printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
@@ -62,13 +66,6 @@ chmod +x /usr/local/sbin/systemctl
 
 # Install Proxmox Mail Gateway
 
-apt-get update
-apt-get install -y --no-install-recommends \
-  postfix \
-  postgresql \
-  clamav-daemon \
-  clamav-freshclam
-
 if [[ "$TARGETARCH" == "amd64" ]]; then
 
   # Add Proxmox Mail Gateway repository
@@ -83,6 +80,7 @@ if [[ "$TARGETARCH" == "amd64" ]]; then
     Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
 DEB
 
+  apt-get update
   apt-get install -y --no-install-recommends \
     pmg-api \
     pmg-gui \

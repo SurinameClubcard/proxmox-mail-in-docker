@@ -31,7 +31,6 @@ apt-get install -y --no-install-recommends \
   procps \
   locales \
   rsyslog \
-  postfix \
   iproute2 \
   net-tools \
   dnsutils \
@@ -79,7 +78,16 @@ DEB
 
   apt-get update
   apt-get install -y --no-install-recommends \
-    proxmox-mailgateway
+    pmg-api \
+    pmg-gui \
+    pmg-docs \
+    pmg-i18n \
+    pmg-log-tracker \
+    proxmox-spamassassin \
+    postfix \
+    postgresql \
+    clamav-daemon \
+    clamav-freshclam
 
 else
 
@@ -97,13 +105,26 @@ DEB
 
   apt-get update
   apt-get install -y --no-install-recommends \
-    proxmox-mailgateway
+    pmg-api \
+    pmg-gui \
+    pmg-docs \
+    pmg-i18n \
+    pmg-log-tracker \
+    proxmox-spamassassin \
+    postfix \
+    postgresql \
+    clamav-daemon \
+    clamav-freshclam
 
 fi
 
 # Prevent system updates
 apt-mark hold \
-  proxmox-mailgateway
+  pmg-api \
+  pmg-gui \
+  pmg-docs \
+  pmg-i18n \
+  pmg-log-tracker
 
 # Install supercronic
 if [[ "$TARGETARCH" == "amd64" ]]; then

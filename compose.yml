@@ -5,6 +5,7 @@ services:
     image: dockurr/proxmox-mail
     environment:
       PASSWORD: "root"
+      DOMAIN: "pmg.example.com"
     ports:
       - 25:25
       - 26:26

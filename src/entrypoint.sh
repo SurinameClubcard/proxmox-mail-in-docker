@@ -5,6 +5,10 @@ set -Eeuo pipefail
 : "${DEBUG:="N"}"            # Enable shell debugging
 : "${PASSWORD:="root"}"      # Default password
 
+: "${PMG_HOSTNAME:="pmg"}"   # Fallback hostname
+: "${PMG_DOMAIN:="local"}"   # Mail domain fallback
+: "${PMG_FQDN:="$PMG_HOSTNAME.$PMG_DOMAIN"}"
+
 # Optional service toggles
 : "${CLAMAV:="Y"}"           # Start clamd for virus scanning
 : "${FRESHCLAM:="Y"}"        # Start freshclam for virus database updates
@@ -65,6 +69,44 @@ read_pidfile() {
 
   REPLY=""
   return 1
+}
+
+configure_hostname() {
+  local fqdn="$PMG_FQDN"
+  local short="$PMG_HOSTNAME"
+  local domain="$PMG_DOMAIN"
+
+  if [[ "$fqdn" == *.* ]]; then
+    short="${fqdn%%.*}"
+    domain="${fqdn#*.}"
+  else
+    fqdn="$short.$domain"
+  fi
+
+  if [ -z "$short" ] || [ -z "$domain" ] || [ "$short" = "$domain" ]; then
+    error "Invalid PMG hostname settings: PMG_FQDN='$PMG_FQDN', PMG_HOSTNAME='$PMG_HOSTNAME', PMG_DOMAIN='$PMG_DOMAIN'"
+    exit 22
+  fi
+
+  echo "Configuring hostname: $fqdn"
+
+  echo "$short" > /etc/hostname
+  echo "$fqdn" > /etc/mailname
+
+  # Keep localhost entries and replace our own PMG hostname mapping.
+  sed -i \
+    -e "/[[:space:]]$short[[:space:]]*/d" \
+    -e "/[[:space:]]$fqdn[[:space:]]*/d" \
+    /etc/hosts 2>/dev/null || :
+
+  cat >>/etc/hosts <<EOF
+127.0.1.1 $fqdn $short
+EOF
+
+  # Make sure Postfix always has a valid identity even before pmgconfig sync.
+  postconf -e "myhostname = $fqdn" || :
+  postconf -e "mydomain = $domain" || :
+  postconf -e "myorigin = \$mydomain" || :
 }
 
 # Check environment
@@ -311,6 +353,9 @@ if ! runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='roo
   runuser -u postgres -- createuser --superuser root
 fi
 
+# Configure hostname/domain before PMG generates Postfix configuration.
+configure_hostname
+
 # Initialize PMG configuration and database
 echo "Initializing PMG configuration..."
 pmgconfig init
@@ -375,6 +420,20 @@ fi
 
 chown -R root:www-data "$PMG_VARLIB_DST/templates" 2>/dev/null || :
 chmod -R u=rwX,g=rX,o= "$PMG_VARLIB_DST/templates" 2>/dev/null || :
+
+# Ensure PMG runtime state directories exist inside the mounted /var/lib/pmg volume.
+mkdir -p \
+  /var/lib/pmg/spamassassin \
+  /var/lib/pmg/spamassassin/.razor \
+  /var/lib/pmg/backup \
+  /var/lib/pmg/dump \
+  /var/lib/pmg/statistic
+
+chown -R root:www-data /var/lib/pmg 2>/dev/null || :
+chown -R www-data:www-data /var/lib/pmg/spamassassin 2>/dev/null || :
+chmod 0750 /var/lib/pmg 2>/dev/null || :
+chmod 0750 /var/lib/pmg/spamassassin 2>/dev/null || :
+chmod 0700 /var/lib/pmg/spamassassin/.razor 2>/dev/null || :
 
 echo "Syncing PMG configuration..."
 pmgconfig sync

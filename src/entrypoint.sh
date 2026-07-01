@@ -322,32 +322,42 @@ pmgconfig init
 echo "Initializing PMG database..."
 pmgdb init
 
-# Ensure PMG templates are available
-echo "Checking PMG templates..."
+# Restore packaged PMG files into the mounted /var/lib/pmg volume if missing.
+echo "Checking PMG packaged files..."
 
-mkdir -p /var/lib/pmg/templates
+PMG_VARLIB_SRC="/usr/share/pmg/var-lib-pmg.dist"
+PMG_VARLIB_DST="/var/lib/pmg"
+
+mkdir -p "$PMG_VARLIB_DST"
+
+restored=0
+
+if [ -d "$PMG_VARLIB_SRC" ]; then
+  while IFS= read -r -d '' src; do
+    rel="${src#$PMG_VARLIB_SRC/}"
+    dst="$PMG_VARLIB_DST/$rel"
+
+    if [ ! -e "$dst" ]; then
+      if [ "$restored" -eq 0 ]; then
+        echo "Restoring missing PMG packaged files from $PMG_VARLIB_SRC..."
+      fi
+
+      mkdir -p "$(dirname "$dst")"
+      cp -a "$src" "$dst"
+      restored=$((restored + 1))
+    fi
+  done < <(find "$PMG_VARLIB_SRC" -type f -print0)
+fi
+
+if [ "$restored" -gt 0 ]; then
+  echo "Restored $restored PMG packaged file(s)."
+fi
+
+# Ensure custom template directory exists.
 mkdir -p /etc/pmg/templates
 
-if [ ! -f /var/lib/pmg/templates/main.cf.in ]; then
-  if [ -f /usr/share/pmg/templates.dist/main.cf.in ]; then
-    echo "Restoring PMG templates from /usr/share/pmg/templates.dist..."
-    cp -a /usr/share/pmg/templates.dist/. /var/lib/pmg/templates/
-  fi
-fi
-
-if [ ! -f /var/lib/pmg/templates/main.cf.in ]; then
-  error "PMG template missing: /var/lib/pmg/templates/main.cf.in"
-  echo "The package database says the file belongs to pmg-api, but it is not visible at runtime."
-  echo "This usually means /var/lib/pmg is mounted as a volume and hides packaged files."
-  echo ""
-  echo "Debug output:"
-  dpkg -S /var/lib/pmg/templates/main.cf.in 2>/dev/null || true
-  find /var/lib/pmg -maxdepth 3 -type f | sort || true
-  exit 20
-fi
-
-chown -R root:www-data /var/lib/pmg/templates || :
-chmod -R u=rwX,g=rX,o= /var/lib/pmg/templates || :
+chown -R root:www-data "$PMG_VARLIB_DST/templates" 2>/dev/null || :
+chmod -R u=rwX,g=rX,o= "$PMG_VARLIB_DST/templates" 2>/dev/null || :
 
 echo "Syncing PMG configuration..."
 pmgconfig sync

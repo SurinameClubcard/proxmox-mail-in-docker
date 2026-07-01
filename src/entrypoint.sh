@@ -379,13 +379,13 @@ fi
 # Configure hostname/domain before PMG generates Postfix configuration.
 configure_hostname
 
-# Seed PMG DNS config explicitly.
-pmgconfig set --section dns --hostname "$PMG_HOSTNAME" || :
-pmgconfig set --section dns --domain "$PMG_MAIL_DOMAIN" || :
-
 # Initialize PMG configuration and database
 echo "Initializing PMG configuration..."
 pmgconfig init
+
+# Seed PMG DNS config explicitly after PMG config exists.
+pmgconfig set --section dns --hostname "$PMG_HOSTNAME" || :
+pmgconfig set --section dns --domain "$PMG_MAIL_DOMAIN" || :
 
 echo "Initializing PMG database..."
 

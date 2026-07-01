@@ -192,13 +192,23 @@ until pg_isready -q -h /var/run/postgresql -p 5432 -U postgres; do
   sleep 0.2
 done
 
+# Ensure PostgreSQL role expected by PMG exists
+echo "Checking PostgreSQL roles..."
+
+if ! runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'" | grep -q 1; then
+  echo "Creating PostgreSQL role 'root'..."
+  runuser -u postgres -- createuser --superuser root
+fi
+
 # Initialize PMG configuration and database
 echo "Initializing PMG configuration..."
 pmgconfig init
-pmgconfig sync
 
 echo "Initializing PMG database..."
 pmgdb init
+
+echo "Syncing PMG configuration..."
+pmgconfig sync
 
 # Start Postfix
 echo "Starting Postfix..."

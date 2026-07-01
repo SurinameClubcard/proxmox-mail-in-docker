@@ -207,15 +207,34 @@ pmgconfig init
 echo "Initializing PMG database..."
 pmgdb init
 
-# Ensure PMG template directory exists
+# Ensure PMG templates are available
 echo "Checking PMG templates..."
 
+mkdir -p /var/lib/pmg/templates
 mkdir -p /etc/pmg/templates
 
 if [ ! -f /var/lib/pmg/templates/main.cf.in ]; then
+  found_template="$(
+    find /usr/share /var/lib /etc \
+      -path '*pmg*' \
+      -name main.cf.in \
+      -type f \
+      2>/dev/null |
+      head -n1
+  )"
+
+  if [ -n "$found_template" ]; then
+    echo "Restoring PMG templates from $(dirname "$found_template")..."
+    cp -a "$(dirname "$found_template")/." /var/lib/pmg/templates/
+  fi
+fi
+
+if [ ! -f /var/lib/pmg/templates/main.cf.in ]; then
   error "PMG template missing: /var/lib/pmg/templates/main.cf.in"
-  echo "Installed PMG template files:"
-  find /var/lib/pmg -maxdepth 3 -type f | sort || :
+  echo "This usually means the image is missing the PMG template files."
+  echo "Debug output:"
+  dpkg -S main.cf.in 2>/dev/null || true
+  find / -name main.cf.in -type f 2>/dev/null || true
   exit 20
 fi
 

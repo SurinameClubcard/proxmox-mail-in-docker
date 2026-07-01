@@ -388,7 +388,13 @@ echo "Initializing PMG configuration..."
 pmgconfig init
 
 echo "Initializing PMG database..."
-pmgdb init
+
+PMGDB_INIT_OUTPUT="$(pmgdb init 2>&1)" || {
+  printf '%s\n' "$PMGDB_INIT_OUTPUT"
+  exit 23
+}
+
+printf '%s\n' "$PMGDB_INIT_OUTPUT" | grep -vE '^(GRANT|CREATE|ALTER)[[:space:]]*$' || :
 
 # Restore packaged PMG files into the mounted /var/lib/pmg volume if missing.
 echo "Checking PMG packaged files..."

@@ -2,17 +2,116 @@
 set -Eeuo pipefail
 
 # Docker environment variables
-: "${DEBUG:="N"}"         # Disable debugging
-: "${PASSWORD:="root"}"   # Default password
+: "${DEBUG:="N"}"            # Enable shell debugging with DEBUG=Y
+: "${PASSWORD:="root"}"      # Default password
+
+# Optional service toggles
+: "${CLAMAV:="Y"}"           # Start clamd for virus scanning
+: "${FRESHCLAM:="Y"}"        # Start freshclam for virus database updates
+: "${FETCHMAIL:="N"}"        # Start fetchmail, only useful if configured
+: "${PMGMIRROR:="N"}"        # Start pmgmirror, only useful for clustering/mirroring
+: "${PMGTUNNEL:="N"}"        # Start pmgtunnel, only useful for clustering
 
 # Helper functions
 info () { printf "%b%s%b" "\E[1;34m❯ \E[1;36m" "${1:-}" "\E[0m\n"; }
 error () { printf "%b%s%b" "\E[1;31m❯ " "ERROR: ${1:-}" "\E[0m\n" >&2; }
 warn () { printf "%b%s%b" "\E[1;31m❯ " "Warning: ${1:-}" "\E[0m\n" >&2; }
 
+is_enabled() {
+  case "${1:-}" in
+    Y|y|YES|yes|TRUE|true|1|ON|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if is_enabled "$DEBUG"; then
+  set -x
+fi
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    error "Required command not found: $1"
+    exit 21
+  }
+}
+
+process_alive() {
+  local pid="${1:-}"
+
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+wait_process_alive() {
+  local pid="${1:-}"
+  local name="${2:-process}"
+  local seconds="${3:-1}"
+
+  sleep "$seconds"
+
+  if ! process_alive "$pid"; then
+    warn "$name exited shortly after startup."
+    return 1
+  fi
+
+  return 0
+}
+
+read_pidfile() {
+  local file
+
+  for file; do
+    if [ -f "$file" ]; then
+      read -r REPLY < "$file"
+      [ -n "${REPLY:-}" ] && return 0
+    fi
+  done
+
+  REPLY=""
+  return 1
+}
+
 # Check environment
 [ "$(id -u)" -ne "0" ] && error "Script must be executed with root privileges." && exit 11
 [ ! -f "/usr/local/bin/entrypoint.sh" ] && error "Script must be run inside the container!" && exit 12
+
+# Check required binaries early.
+require_cmd openssl
+require_cmd chpasswd
+require_cmd pmgconfig
+require_cmd pmgdb
+require_cmd pg_ctlcluster
+require_cmd pg_createcluster
+require_cmd pg_dropcluster
+require_cmd pg_isready
+require_cmd psql
+require_cmd createuser
+require_cmd runuser
+require_cmd supercronic
+require_cmd pmgdaemon
+require_cmd pmgproxy
+require_cmd pmg-smtp-filter
+require_cmd pmgpolicy
+
+if is_enabled "$CLAMAV" && ! command -v clamd >/dev/null 2>&1; then
+  warn "CLAMAV=Y but clamd is missing."
+fi
+
+if is_enabled "$FRESHCLAM" && ! command -v freshclam >/dev/null 2>&1; then
+  warn "FRESHCLAM=Y but freshclam is missing."
+fi
+
+if is_enabled "$FETCHMAIL" && ! command -v fetchmail >/dev/null 2>&1; then
+  warn "FETCHMAIL=Y but fetchmail is missing."
+fi
+
+if is_enabled "$PMGTUNNEL" && ! command -v pmgtunnel >/dev/null 2>&1; then
+  warn "PMGTUNNEL=Y but pmgtunnel is missing."
+fi
+
+if is_enabled "$PMGMIRROR" && ! command -v pmgmirror >/dev/null 2>&1; then
+  warn "PMGMIRROR=Y but pmgmirror is missing."
+fi
 
 # Display version number
 info "Starting Proxmox Mail Gateway for Docker v$(</etc/version)..."
@@ -86,6 +185,22 @@ dir="/run/pmg"
 mkdir -p "$dir"
 chmod 0755 "$dir" || :
 chown "root:root" "$dir" || :
+
+# Remove stale PID files.
+#
+# This matters when /run is mounted or when the previous container stop was not clean.
+rm -f \
+  /run/clamav/clamd.pid \
+  /run/clamav/freshclam.pid \
+  /var/run/clamav/clamd.pid \
+  /var/run/clamav/freshclam.pid \
+  /var/spool/postfix/pid/master.pid \
+  /run/pmgdaemon.pid \
+  /run/pmgproxy.pid \
+  /run/pmg-smtp-filter.pid \
+  /run/pmgpolicy.pid \
+  /run/pmgmirror.pid \
+  /run/pmgtunnel.pid
 
 # Start rsyslog early because PMG tools expect /dev/log
 echo "Starting rsyslog..."
@@ -237,6 +352,147 @@ chmod -R u=rwX,g=rX,o= /var/lib/pmg/templates || :
 echo "Syncing PMG configuration..."
 pmgconfig sync
 
+# Prepare ClamAV directories.
+#
+# PMG does not start ClamAV itself when systemd is removed.
+# clamd and freshclam need to be supervised separately.
+if is_enabled "$CLAMAV" || is_enabled "$FRESHCLAM"; then
+  echo "Preparing ClamAV..."
+
+  mkdir -p /run/clamav /var/lib/clamav /var/log/clamav
+  chown -R clamav:clamav /run/clamav /var/lib/clamav /var/log/clamav 2>/dev/null || :
+  chmod 0755 /run/clamav || :
+
+  # Make sure common log files exist, because Debian ClamAV configs often expect them.
+  touch /var/log/clamav/clamav.log /var/log/clamav/freshclam.log 2>/dev/null || :
+  chown clamav:clamav /var/log/clamav/clamav.log /var/log/clamav/freshclam.log 2>/dev/null || :
+fi
+
+# Initialize ClamAV database before clamd starts.
+#
+# On first boot the database may be empty. clamd often refuses to start
+# when no virus database exists yet. freshclam can fail because of rate limits
+# or missing network, so this must not hard-fail the container.
+if is_enabled "$CLAMAV" || is_enabled "$FRESHCLAM"; then
+  if command -v freshclam >/dev/null 2>&1; then
+    if ! find /var/lib/clamav -type f \( -name '*.cvd' -o -name '*.cld' \) 2>/dev/null | grep -q .; then
+      echo "Initializing ClamAV virus database..."
+      freshclam || warn "freshclam failed during initial database update. Continuing anyway."
+    fi
+  else
+    warn "freshclam binary not found."
+  fi
+fi
+
+# Start freshclam daemon.
+#
+# This keeps virus definitions updated while the container is running.
+# If freshclam exits later, the container will keep running because mail flow
+# can continue with the existing virus database.
+FRESHCLAM_PID=""
+
+if is_enabled "$FRESHCLAM"; then
+  if command -v freshclam >/dev/null 2>&1; then
+    echo "Starting freshclam..."
+
+    freshclam -d --foreground=true &
+    FRESHCLAM_PID=$!
+
+    if ! wait_process_alive "$FRESHCLAM_PID" "freshclam" 1; then
+      FRESHCLAM_PID=""
+
+      warn "Retrying freshclam in daemon mode..."
+      freshclam -d || warn "Could not start freshclam daemon."
+
+      if read_pidfile /run/clamav/freshclam.pid /var/run/clamav/freshclam.pid; then
+        FRESHCLAM_PID="$REPLY"
+      fi
+    fi
+  else
+    warn "FRESHCLAM=Y but freshclam binary not found."
+  fi
+fi
+
+# Start clamd.
+#
+# This is required for PMG virus scanning. pmg-smtp-filter will not start
+# clamd for you in a non-systemd container.
+CLAMD_PID=""
+
+if is_enabled "$CLAMAV"; then
+  if command -v clamd >/dev/null 2>&1; then
+    echo "Starting clamd..."
+
+    clamd --foreground=true &
+    CLAMD_PID=$!
+
+    if ! wait_process_alive "$CLAMD_PID" "clamd" 1; then
+      CLAMD_PID=""
+
+      warn "Retrying clamd with --foreground..."
+      clamd --foreground &
+      CLAMD_PID=$!
+
+      if ! wait_process_alive "$CLAMD_PID" "clamd" 1; then
+        CLAMD_PID=""
+
+        warn "Retrying clamd via init script or daemon mode..."
+
+        if [ -x /etc/init.d/clamav-daemon ]; then
+          /etc/init.d/clamav-daemon start || warn "Could not start clamav-daemon."
+        else
+          clamd || warn "Could not start clamd daemon."
+        fi
+
+        if read_pidfile /run/clamav/clamd.pid /var/run/clamav/clamd.pid; then
+          CLAMD_PID="$REPLY"
+        fi
+      fi
+    fi
+  else
+    warn "CLAMAV=Y but clamd binary not found."
+  fi
+fi
+
+# Wait for clamd socket before starting pmg-smtp-filter.
+#
+# Starting clamd is not enough. PMG virus scanning needs the local socket
+# from /etc/clamav/clamd.conf.
+CLAMD_SOCKET=""
+
+if is_enabled "$CLAMAV" && [ -f /etc/clamav/clamd.conf ]; then
+  CLAMD_SOCKET="$(awk '$1 == "LocalSocket" { print $2 }' /etc/clamav/clamd.conf 2>/dev/null | tail -n1)"
+fi
+
+CLAMD_SOCKET="${CLAMD_SOCKET:-/run/clamav/clamd.ctl}"
+
+if is_enabled "$CLAMAV" && [ -n "${CLAMD_PID:-}" ]; then
+  echo "Waiting for clamd socket..."
+
+  for _ in $(seq 1 60); do
+    [ -S "$CLAMD_SOCKET" ] && break
+
+    if ! process_alive "$CLAMD_PID"; then
+      warn "clamd exited before creating socket."
+      CLAMD_PID=""
+      break
+    fi
+
+    sleep 1
+  done
+
+  if [ -n "${CLAMD_PID:-}" ] && [ ! -S "$CLAMD_SOCKET" ]; then
+    warn "clamd socket was not created: $CLAMD_SOCKET"
+  fi
+fi
+
+# Test clamd health.
+if is_enabled "$CLAMAV" && [ -n "${CLAMD_PID:-}" ] && command -v clamdscan >/dev/null 2>&1; then
+  if ! clamdscan --no-summary /etc/hosts >/dev/null 2>&1; then
+    warn "clamdscan test failed. Virus scanning may not work."
+  fi
+fi
+
 # Start Postfix
 echo "Starting Postfix..."
 /etc/init.d/postfix start || :
@@ -244,6 +500,33 @@ POSTFIX_PID=""
 
 if [ -f /var/spool/postfix/pid/master.pid ]; then
   read -r POSTFIX_PID < /var/spool/postfix/pid/master.pid
+fi
+
+# Start fetchmail, if enabled.
+#
+# This is only needed if you configured PMG to fetch mail from remote POP/IMAP
+# accounts. Normal SMTP gateway usage does not need fetchmail.
+FETCHMAIL_PID=""
+
+if is_enabled "$FETCHMAIL"; then
+  if command -v fetchmail >/dev/null 2>&1; then
+    echo "Starting fetchmail..."
+
+    mkdir -p /run/fetchmail
+    chown fetchmail:nogroup /run/fetchmail 2>/dev/null || :
+
+    if [ -x /etc/init.d/fetchmail ]; then
+      /etc/init.d/fetchmail start || warn "Could not start fetchmail."
+    else
+      fetchmail -d 300 -f /etc/fetchmailrc || warn "Could not start fetchmail."
+    fi
+
+    if read_pidfile /run/fetchmail/fetchmail.pid /var/run/fetchmail/fetchmail.pid; then
+      FETCHMAIL_PID="$REPLY"
+    fi
+  else
+    warn "FETCHMAIL=Y but fetchmail binary not found."
+  fi
 fi
 
 # Start supercronic
@@ -290,6 +573,10 @@ cleanup() {
     "${PMGSMTPFILTER_PID:-}"
     "${PMGPOLICY_PID:-}"
     "${PMGMIRROR_PID:-}"
+    "${PMGTUNNEL_PID:-}"
+    "${FETCHMAIL_PID:-}"
+    "${CLAMD_PID:-}"
+    "${FRESHCLAM_PID:-}"
     "${CRON_PID:-}"
     "${POSTFIX_PID:-}"
     "${RSYSLOG_PID:-}"
@@ -302,6 +589,12 @@ cleanup() {
   pmg-smtp-filter stop 2>/dev/null || :
   pmgpolicy stop 2>/dev/null || :
   pmgmirror stop 2>/dev/null || :
+  pmgtunnel stop 2>/dev/null || :
+
+  # Stop optional non-PMG services cleanly when init scripts are available.
+  /etc/init.d/fetchmail stop 2>/dev/null || :
+  /etc/init.d/clamav-daemon stop 2>/dev/null || :
+  /etc/init.d/clamav-freshclam stop 2>/dev/null || :
 
   # Send SIGTERM to tracked processes.
   for pid in "${pids[@]}"; do
@@ -337,22 +630,72 @@ _trap cleanup SIGTERM SIGINT
 echo "Starting pmgdaemon..."
 pmgdaemon start --debug 1 &
 PMGDAEMON_PID=$!
+wait_process_alive "$PMGDAEMON_PID" "pmgdaemon" 1 || cleanup
 
 echo "Starting pmgproxy..."
 pmgproxy start --debug 1 &
 PMGPROXY_PID=$!
+wait_process_alive "$PMGPROXY_PID" "pmgproxy" 1 || cleanup
 
 echo "Starting pmg-smtp-filter..."
 pmg-smtp-filter start --debug 1 &
 PMGSMTPFILTER_PID=$!
+wait_process_alive "$PMGSMTPFILTER_PID" "pmg-smtp-filter" 1 || cleanup
 
 echo "Starting pmgpolicy..."
 pmgpolicy start --debug 1 &
 PMGPOLICY_PID=$!
+wait_process_alive "$PMGPOLICY_PID" "pmgpolicy" 1 || cleanup
 
-echo "Starting pmgmirror..."
-pmgmirror start --debug 1 &
-PMGMIRROR_PID=$!
+PMGMIRROR_PID=""
+
+if is_enabled "$PMGMIRROR"; then
+  echo "Starting pmgmirror..."
+  pmgmirror start --debug 1 &
+  PMGMIRROR_PID=$!
+
+  if ! wait_process_alive "$PMGMIRROR_PID" "pmgmirror" 1; then
+    warn "pmgmirror exited. Continuing because PMGMIRROR is optional."
+    PMGMIRROR_PID=""
+  fi
+fi
+
+PMGTUNNEL_PID=""
+
+if is_enabled "$PMGTUNNEL"; then
+  echo "Starting pmgtunnel..."
+  pmgtunnel start --debug 1 &
+  PMGTUNNEL_PID=$!
+
+  if ! wait_process_alive "$PMGTUNNEL_PID" "pmgtunnel" 1; then
+    warn "pmgtunnel exited. Continuing because PMGTUNNEL is optional."
+    PMGTUNNEL_PID=""
+  fi
+fi
+
+# Final readiness check.
+#
+# This does not hard-fail the container, but gives clear diagnostics.
+echo "Checking PMG readiness..."
+
+if command -v ss >/dev/null 2>&1; then
+  for _ in $(seq 1 60); do
+    if ss -ltn | grep -q ':8006 '; then
+      break
+    fi
+    sleep 1
+  done
+
+  if ! ss -ltn | grep -q ':8006 '; then
+    warn "PMG web interface does not appear to be listening on port 8006."
+  fi
+
+  if ! ss -ltn | grep -q ':25 '; then
+    warn "Postfix does not appear to be listening on port 25."
+  fi
+else
+  warn "Cannot run readiness port checks because 'ss' is not installed."
+fi
 
 echo ""
 info "------------------------------------------------------------------------------"
@@ -370,11 +713,46 @@ echo ""
 while true; do
   sleep 5
 
-  kill -0 "$PMGDAEMON_PID" 2>/dev/null || break
-  kill -0 "$PMGPROXY_PID" 2>/dev/null || break
-  kill -0 "$PMGSMTPFILTER_PID" 2>/dev/null || break
-  kill -0 "$PMGPOLICY_PID" 2>/dev/null || break
+  # Required PMG processes.
+  process_alive "$PMGDAEMON_PID" || break
+  process_alive "$PMGPROXY_PID" || break
+  process_alive "$PMGSMTPFILTER_PID" || break
+  process_alive "$PMGPOLICY_PID" || break
+
+  # ClamAV is important when enabled. If clamd dies, virus scanning is broken.
+  if [ -n "${CLAMD_PID:-}" ]; then
+    process_alive "$CLAMD_PID" || break
+  fi
+
+  # Optional services should not necessarily kill the whole container.
+  if [ -n "${FRESHCLAM_PID:-}" ]; then
+    if ! process_alive "$FRESHCLAM_PID"; then
+      warn "freshclam exited. Virus definitions will no longer update."
+      FRESHCLAM_PID=""
+    fi
+  fi
+
+  if [ -n "${FETCHMAIL_PID:-}" ]; then
+    if ! process_alive "$FETCHMAIL_PID"; then
+      warn "fetchmail exited. Continuing because FETCHMAIL is optional."
+      FETCHMAIL_PID=""
+    fi
+  fi
+
+  if [ -n "${PMGMIRROR_PID:-}" ]; then
+    if ! process_alive "$PMGMIRROR_PID"; then
+      warn "pmgmirror exited. Continuing because PMGMIRROR is optional."
+      PMGMIRROR_PID=""
+    fi
+  fi
+
+  if [ -n "${PMGTUNNEL_PID:-}" ]; then
+    if ! process_alive "$PMGTUNNEL_PID"; then
+      warn "pmgtunnel exited. Continuing because PMGTUNNEL is optional."
+      PMGTUNNEL_PID=""
+    fi
+  fi
 done
 
-info "A PMG process exited unexpectedly. Shutting down..."
+info "A required PMG process exited unexpectedly. Shutting down..."
 cleanup

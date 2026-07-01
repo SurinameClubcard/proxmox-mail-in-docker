@@ -383,10 +383,6 @@ configure_hostname
 echo "Initializing PMG configuration..."
 pmgconfig init
 
-# Seed PMG DNS config explicitly after PMG config exists.
-pmgconfig set --section dns --hostname "$PMG_HOSTNAME" || :
-pmgconfig set --section dns --domain "$PMG_MAIL_DOMAIN" || :
-
 echo "Initializing PMG database..."
 
 PMGDB_INIT_OUTPUT="$(pmgdb init 2>&1)" || {
@@ -467,9 +463,6 @@ chown -R www-data:www-data /var/lib/pmg/spamassassin 2>/dev/null || :
 chmod 0750 /var/lib/pmg 2>/dev/null || :
 chmod 0750 /var/lib/pmg/spamassassin 2>/dev/null || :
 chmod 0700 /var/lib/pmg/spamassassin/.razor 2>/dev/null || :
-
-echo "PMG DNS configuration:"
-pmgconfig dump | grep -Ei 'dns|hostname|domain|fqdn' || true
 
 echo "Syncing PMG configuration..."
 pmgconfig sync
@@ -761,30 +754,32 @@ wait_process_alive "$PMGPROXY_PID" "pmgproxy" 1 || cleanup
 
 echo "Starting pmg-smtp-filter..."
 pmg-smtp-filter start
-PMGSMTPFILTER_PID=""
 
-if read_pidfile /run/pmg-smtp-filter.pid /var/run/pmg-smtp-filter.pid; then
-  PMGSMTPFILTER_PID="$REPLY"
-fi
+for _ in $(seq 1 30); do
+  if ss -ltn | grep -qE '127\.0\.0\.1:1002[34][[:space:]]'; then
+    break
+  fi
+  sleep 1
+done
 
-if [ -z "$PMGSMTPFILTER_PID" ]; then
-  warn "Could not read pmg-smtp-filter PID file."
-else
-  wait_process_alive "$PMGSMTPFILTER_PID" "pmg-smtp-filter" 1 || cleanup
+if ! ss -ltn | grep -qE '127\.0\.0\.1:1002[34][[:space:]]'; then
+  warn "pmg-smtp-filter does not appear to be listening on ports 10023/10024."
+  cleanup
 fi
 
 echo "Starting pmgpolicy..."
 pmgpolicy start
-PMGPOLICY_PID=""
 
-if read_pidfile /run/pmgpolicy.pid /var/run/pmgpolicy.pid; then
-  PMGPOLICY_PID="$REPLY"
-fi
+for _ in $(seq 1 30); do
+  if ss -ltn | grep -q '127.0.0.1:10022'; then
+    break
+  fi
+  sleep 1
+done
 
-if [ -z "$PMGPOLICY_PID" ]; then
-  warn "Could not read pmgpolicy PID file."
-else
-  wait_process_alive "$PMGPOLICY_PID" "pmgpolicy" 1 || cleanup
+if ! ss -ltn | grep -q '127.0.0.1:10022'; then
+  warn "pmgpolicy does not appear to be listening on port 10022."
+  cleanup
 fi
 
 PMGMIRROR_PID=""
@@ -856,8 +851,8 @@ while true; do
   # Required PMG processes.
   process_alive "$PMGDAEMON_PID" || break
   process_alive "$PMGPROXY_PID" || break
-  process_alive "$PMGSMTPFILTER_PID" || break
-  process_alive "$PMGPOLICY_PID" || break
+  ss -ltn | grep -qE '127\.0\.0\.1:1002[34][[:space:]]' || break
+  ss -ltn | grep -q '127.0.0.1:10022' || break
 
   # ClamAV is important when enabled. If clamd dies, virus scanning is broken.
   if [ -n "${CLAMD_PID:-}" ]; then

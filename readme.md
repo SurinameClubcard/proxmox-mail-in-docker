@@ -23,7 +23,6 @@ Proxmox Mail Gateway inside a Docker container.
 - **DKIM Signing** - Optionally sign outgoing emails with DKIM to ensure authenticity and improve deliverability.
 - **Outbound Protection** - Scans outgoing emails to prevent your server from being blacklisted and maintains IP reputation.
 - **Authentication** - Supports standard Linux PAM, single sign-on (SSO) via OpenID Connect, and Two-Factor Authentication (TOTP/WebAuthn) for secure admin access.
-- **Extensive API** - Includes REST API for seamless integration with other hosting systems and custom tools.
 
 ## Usage  🐳
 

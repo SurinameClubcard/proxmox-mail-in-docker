@@ -4,10 +4,7 @@ set -Eeuo pipefail
 # Docker environment variables
 : "${DEBUG:="N"}"            # Enable debugging
 : "${PASSWORD:="root"}"      # Default password
-
-: "${PMG_HOSTNAME:="pmg"}"   # Fallback hostname
-: "${PMG_DOMAIN:="local"}"   # Mail domain fallback
-: "${PMG_FQDN:="$PMG_HOSTNAME.$PMG_DOMAIN"}"
+: "${DOMAIN:="${HOSTNAME:-pmg.local}"}"  # FQDN
 
 # Optional service toggles
 : "${CLAMAV:="Y"}"           # Start clamd for virus scanning
@@ -72,19 +69,22 @@ read_pidfile() {
 }
 
 configure_hostname() {
-  local fqdn="$PMG_FQDN"
-  local short="$PMG_HOSTNAME"
-  local domain="$PMG_DOMAIN"
+  local fqdn="$DOMAIN"
+  local short
+  local mail_domain
 
   if [[ "$fqdn" == *.* ]]; then
     short="${fqdn%%.*}"
-    domain="${fqdn#*.}"
+    mail_domain="${fqdn#*.}"
   else
-    fqdn="$short.$domain"
+    short="$fqdn"
+    mail_domain="local"
+    fqdn="$short.$mail_domain"
+    DOMAIN="$fqdn"
   fi
 
-  if [ -z "$short" ] || [ -z "$domain" ] || [ "$short" = "$domain" ]; then
-    error "Invalid PMG hostname settings: PMG_FQDN='$PMG_FQDN', PMG_HOSTNAME='$PMG_HOSTNAME', PMG_DOMAIN='$PMG_DOMAIN'"
+  if [ -z "$short" ] || [ -z "$mail_domain" ] || [ "$short" = "$mail_domain" ]; then
+    error "Invalid DOMAIN setting: DOMAIN='$DOMAIN'"
     exit 22
   fi
 
@@ -93,7 +93,6 @@ configure_hostname() {
   echo "$short" > /etc/hostname
   echo "$fqdn" > /etc/mailname
 
-  # Keep localhost entries and replace our own PMG hostname mapping.
   sed -i \
     -e "/[[:space:]]$short[[:space:]]*/d" \
     -e "/[[:space:]]$fqdn[[:space:]]*/d" \
@@ -103,9 +102,8 @@ configure_hostname() {
 127.0.1.1 $fqdn $short
 EOF
 
-  # Make sure Postfix always has a valid identity even before pmgconfig sync.
   postconf -e "myhostname = $fqdn" || :
-  postconf -e "mydomain = $domain" || :
+  postconf -e "mydomain = $mail_domain" || :
   postconf -e "myorigin = \$mydomain" || :
 }
 

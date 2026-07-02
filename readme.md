@@ -56,7 +56,7 @@ services:
 docker run -it --rm --name pmg --hostname pmg -e "PASSWORD=root" -e "DOMAIN=pmg.example.com" -p 25:25 -p 26:26 -p 8006:8006 -v "${PWD:-.}/config:/etc/pmg" -v "${PWD:-.}/data:/var/lib/pmg" -v "${PWD:-.}/spool:/var/spool/pmg" -v "${PWD:-.}/postgres:/var/lib/postgresql" --stop-timeout 120 docker.io/dockurr/proxmox-mail
 ```
 
-##### Via Github Codespaces:
+##### Via GitHub Codespaces:
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/dockur/proxmox-mail)
 
